@@ -1,8 +1,14 @@
 "use client";
 
+import { useUsername } from "@/hooks/use-username";
+import { client } from "@/lib/client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
 import { ClipboardCheck, Copy, Send } from "lucide-react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { useRealtime } from "@/lib/realtime-client";
+import { Message } from "@/lib/realtime";
 
 const formatTimeRemaining = (timeRemaining: number) => {
   const mins = Math.floor(timeRemaining / 60);
@@ -13,12 +19,61 @@ const formatTimeRemaining = (timeRemaining: number) => {
 const RoomPage = () => {
   const params = useParams();
   const roomId = params.roomId as string;
-
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const { userName } = useUsername();
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [isCopied, setIsCopied] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  const [timeRemaining] = useState<number | null>(null);
+
+  const { data: messages } = useQuery({
+    queryKey: ["messages", roomId],
+    queryFn: async () => {
+      const res = await client.messages.get({ query: { roomId } });
+      return res.data;
+    },
+  });
+
+  const { mutate: sendMessage, isPending } = useMutation({
+    mutationFn: async ({ text }: { text: string }) => {
+      await client.messages.post(
+        {
+          sender: userName,
+          text,
+        },
+        { query: { roomId } }
+      );
+    },
+  });
+
+  useRealtime({
+    channels: [roomId],
+    events: ["chat.message", "chat.destroy"],
+    onData: ({ event, data }) => {
+      if (event === "chat.message") {
+        queryClient.setQueryData(
+          ["messages", roomId],
+          (old: { messages: Message[] }) => {
+            const existingMessages = old?.messages || [];
+            // Only add if not already present
+            const exists = existingMessages.some((msg) => msg.id === data.id);
+            if (exists) return old;
+
+            return {
+              ...old,
+              messages: [...existingMessages, data],
+            };
+          }
+        );
+      }
+
+      if (event === "chat.destroy") {
+        router.push("/?destroyed=true");
+      }
+    },
+  });
 
   const handleCopy = () => {
     const url = `${window.location.origin}/room/${roomId}`;
@@ -76,7 +131,38 @@ const RoomPage = () => {
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin"></div>
+      {/* MESSAGES */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
+        {messages?.messages.length === 0 && (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-zinc-500 text-sm font-mono">
+              No messages yet, start the conversation!
+            </p>
+          </div>
+        )}
+        {messages?.messages.map((msg) => (
+          <div key={msg.id} className="flex flex-col items-start">
+            <div className="max-w-[80%] group">
+              <div className="flex items-baseline gap-3 mb-1">
+                <span
+                  className={`text-xs font-bold ${
+                    msg.sender === userName ? "text-green-500" : "text-blue-500"
+                  }`}
+                >
+                  {msg.sender === userName ? "YOU" : msg.sender}
+                </span>
+                <span className="text-[10px] text-zinc-500">
+                  {format(msg.timestamp, "HH:mm")}
+                </span>
+              </div>
+
+              <p className="text-sm text-zinc-300 leading-relaxed break-all">
+                {msg.text}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
 
       <div className="p-4 border-t border-zinc-800 bg-zinc-900/30">
         <div className="flex gap-4">
@@ -90,8 +176,8 @@ const RoomPage = () => {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && input.trim() !== "") {
                   e.preventDefault();
+                  sendMessage({ text: input });
                   setInput("");
-                  // TODO: Send message
                   inputRef.current?.focus();
                 }
               }}
@@ -101,7 +187,17 @@ const RoomPage = () => {
               placeholder="Type your message..."
             />
           </div>
-          <button className="text-xs bg-zinc-800 hover:bg-green-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold transition-all group flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+          <button
+            onClick={() => {
+              if (input.trim() !== "") {
+                sendMessage({ text: input });
+                setInput("");
+                inputRef.current?.focus();
+              }
+            }}
+            disabled={input.trim() === "" || isPending}
+            className="text-xs bg-zinc-800 hover:bg-green-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold transition-all group flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
             <Send className="w-4 h-4" />
           </button>
         </div>
