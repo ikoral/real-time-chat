@@ -1,0 +1,17 @@
+services:
+  redis:
+    image: redis:8.2-alpine
+    container_name: chat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - chat_redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  chat_redis_data:
