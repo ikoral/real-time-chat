@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ClipboardCheck, Copy, Send } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useRealtime } from "@/lib/realtime-client";
 import { Message } from "@/lib/realtime";
 
@@ -26,7 +26,42 @@ const RoomPage = () => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [isCopied, setIsCopied] = useState(false);
-  const [timeRemaining] = useState<number | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+
+  const { data: ttlData } = useQuery({
+    queryKey: ["ttl", roomId],
+    queryFn: async () => {
+      const res = await client.room.ttl.get({ query: { roomId } });
+      return res.data;
+    },
+    staleTime: Infinity, // Only fetch once
+  });
+
+  // Initialize timeRemaining once when data arrives
+  if (ttlData?.ttl !== undefined && timeRemaining === null) {
+    setTimeRemaining(ttlData.ttl);
+  }
+
+  useEffect(() => {
+    if (timeRemaining === null || timeRemaining < 0) return;
+
+    if (timeRemaining === 0) {
+      router.push("/?destroyed=true");
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setTimeRemaining((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [timeRemaining, router]);
 
   const { data: messages } = useQuery({
     queryKey: ["messages", roomId],
