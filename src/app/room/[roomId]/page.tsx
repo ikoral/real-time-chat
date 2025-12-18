@@ -110,6 +110,12 @@ const RoomPage = () => {
     },
   });
 
+  const { mutate: destroyRoom, isPending: isDestroying } = useMutation({
+    mutationFn: async () => {
+      await client.room.delete(null, { query: { roomId } });
+    },
+  });
+
   const handleCopy = () => {
     const url = `${window.location.origin}/room/${roomId}`;
     navigator.clipboard.writeText(url);
@@ -160,7 +166,11 @@ const RoomPage = () => {
           </div>
         </div>
 
-        <button className="text-xs bg-zinc-800 hover:bg-red-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold transition-all group flex items-center gap-2 disabled:opacity-50">
+        <button
+          onClick={() => destroyRoom()}
+          disabled={isDestroying}
+          className="text-xs bg-zinc-800 hover:bg-red-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold transition-all group flex items-center gap-2 disabled:opacity-50"
+        >
           <span className="group-hover:animate-pulse text-base">💣</span>
           DESTROY ROOM
         </button>
